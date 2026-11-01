@@ -1,0 +1,335 @@
+import importlib.util
+import pathlib
+import unittest
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+spec = importlib.util.spec_from_file_location("backend", ROOT / "runtime/0.1.0/backend.py")
+backend = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(backend)
+
+class BackendTests(unittest.TestCase):
+    def setUp(self):
+        import tempfile, os, json
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.home = pathlib.Path(self.temp.name)
+        self.shim = self.home / 'bin'
+        self.shim.mkdir()
+        tool = self.shim / 'hyprctl'
+        tool.write_bytes((ROOT / 'tests/hyprctl_fixture.py').read_bytes())
+        tool.chmod(0o755)
+        self.original = {
+            'animations.enabled': True, 'animations.workspace_wraparound': False,
+            'general.gaps_in': [2,3,4,5], 'general.gaps_out': [7,8,9,10],
+            'general.border_size': 4, 'decoration.rounding': 11,
+            'decoration.blur.enabled': True, 'decoration.shadow.enabled': True,
+            'decoration.screen_shader': '/old/example.frag', 'unrelated': 'keep'
+        }
+        (self.home / 'compositor.json').write_text(json.dumps(self.original))
+        self.env = {'HOME': str(self.home), 'PATH': str(self.shim)+':/usr/bin',
+                    'XDG_STATE_HOME': str(self.home / 'state'),
+                    'HYPRLAND_INSTANCE_SIGNATURE': 'private_fixture_123',
+                    'LANG': 'C.UTF-8', 'PYTHONDONTWRITEBYTECODE': '1'}
+
+    def cli(self, *args, extra=None):
+        import subprocess, json
+        p = subprocess.run(['/usr/bin/python3', str(ROOT / 'runtime/0.1.0/backend.py'), *args],
+                           env=dict(self.env, **(extra or {})), capture_output=True, timeout=25)
+        self.assertLess(len(p.stdout), 1048576)
+        self.assertEqual(p.stderr, b'', p.stderr)
+        return p.returncode, json.loads(p.stdout)
+
+    def values(self):
+        import json
+        return json.loads((self.home / 'compositor.json').read_text())
+
+    def test_explicit_apply_then_restore_actual_values(self):
+        row = backend.load_rows()[0]
+        code, result = self.cli('action', '--id', row['id'], '--verb', 'apply', '--apply')
+        self.assertEqual(code, 0, result)
+        self.assertTrue(result['ok'])
+        self.assertNotEqual(self.values(), self.original)
+        code, result = self.cli('action', '--id', row['id'], '--verb', 'restore', '--apply')
+        self.assertEqual(code, 0, result)
+        self.assertEqual(self.values(), self.original)
+
+    def test_partial_failure_rolls_back_actual_values(self):
+        row = backend.load_rows()[0]
+        fail = '2' if backend.SLUG == 'workspace-profiles' else '1'
+        code, result = self.cli('action', '--id', row['id'], '--verb', 'apply', '--apply',
+                                extra={'FIXTURE_FAIL_AT': fail, 'FIXTURE_FAIL_AFTER': '1'})
+        self.assertNotEqual(code, 0)
+        self.assertFalse(result['ok'])
+        self.assertEqual(self.values(), self.original, 'partial mutation was not rolled back')
+        self.assertIn('rollback', result['message'].lower())
+
+    def test_external_edits_block_restore_without_clobbering(self):
+        import json
+        row = backend.load_rows()[0]
+        self.assertEqual(self.cli('action', '--id', row['id'], '--verb', 'apply', '--apply')[0], 0)
+        changed = self.values()
+        key = next(iter(row['settings']))
+        changed[key] = not changed[key] if type(changed[key]) is bool else (99 if type(changed[key]) is int else ([99]*4 if type(changed[key]) is list else '/external.frag'))
+        (self.home / 'compositor.json').write_text(json.dumps(changed))
+        code, result = self.cli('action', '--id', row['id'], '--verb', 'restore', '--apply')
+        self.assertNotEqual(code, 0)
+        self.assertIn('conflict', result['message'].lower())
+        self.assertEqual(self.values(), changed)
+
+    def test_unknown_membership_and_verb_have_no_ipc(self):
+        for ident, verb in [('../evil', 'apply'), ('$(bad)', 'apply'), (backend.load_rows()[0]['id'], 'launch')]:
+            code, result = self.cli('action', '--id', ident, '--verb', verb, '--apply')
+            self.assertNotEqual(code, 0)
+            self.assertFalse(result['ok'])
+        self.assertFalse((self.home / 'calls.jsonl').exists())
+
+    def test_catalog_has_no_state_or_ipc_side_effects(self):
+        code, result = self.cli('catalog')
+        self.assertEqual(code, 0)
+        self.assertEqual(result['rows'], backend.catalog()['rows'])
+        self.assertFalse((self.home / 'calls.jsonl').exists())
+        self.assertFalse((self.home / 'state').exists())
+
+    def test_unqualified_version_fails_closed(self):
+        row = backend.load_rows()[0]
+        code, result = self.cli('action', '--id', row['id'], '--verb', 'apply', '--apply',
+                                extra={'FIXTURE_VERSION': '0.99.0'})
+        self.assertNotEqual(code, 0)
+        self.assertIn('0.56.2', result['message'])
+        self.assertEqual(self.values(), self.original)
+
+    def test_missing_session_fails_closed(self):
+        row = backend.load_rows()[0]
+        code, result = self.cli('action', '--id', row['id'], '--verb', 'apply', '--apply',
+                                extra={'HYPRLAND_INSTANCE_SIGNATURE': ''})
+        self.assertNotEqual(code, 0)
+        self.assertEqual(self.values(), self.original)
+        self.assertFalse((self.home / 'calls.jsonl').exists())
+
+    def test_missing_helper_reports_failure(self):
+        (self.shim / 'hyprctl').unlink()
+        # PATH remains fixture-only to exclude the real executable even inside this isolated box.
+        row = backend.load_rows()[0]
+        code, result = self.cli('action', '--id', row['id'], '--verb', 'apply', '--apply',
+                                extra={'PATH': str(self.shim)})
+        self.assertNotEqual(code, 0)
+        self.assertIn('unavailable', result['message'])
+        self.assertEqual(self.values(), self.original)
+
+    def test_failed_rollback_retains_recoverable_snapshot(self):
+        row = backend.load_rows()[0]
+        code, result = self.cli('action', '--id', row['id'], '--verb', 'apply', '--apply',
+                                extra={'FIXTURE_FAILS': '1,2', 'FIXTURE_FAIL_AFTER': '1'})
+        self.assertNotEqual(code, 0)
+        self.assertIn('retained', result['message'].lower())
+        self.assertEqual(len(list((self.home / 'state').rglob('transaction.json'))), 1)
+        self.assertNotEqual(self.values(), self.original)
+        code, result = self.cli('action', '--id', row['id'], '--verb', 'restore', '--apply')
+        self.assertEqual(code, 0, result)
+        self.assertEqual(self.values(), self.original)
+
+    def test_interrupted_snapshot_restores_partial_transaction(self):
+        import json
+        row = backend.load_rows()[0]
+        self.assertEqual(self.cli('action', '--id', row['id'], '--verb', 'apply', '--apply')[0], 0)
+        path = next((self.home / 'state').rglob('transaction.json'))
+        record = json.loads(path.read_text())
+        record['phase'] = 'pending'
+        record['previous'] = {k:self.original[k] for k in backend.SCHEMA}
+        path.write_text(json.dumps(record))
+        # Simulate a crash after only one field of a multi-field transaction was written.
+        partial = self.values()
+        keys = list(row['settings'])
+        for key in keys[1:]:
+            partial[key] = self.original[key]
+        (self.home / 'compositor.json').write_text(json.dumps(partial))
+        code, result = self.cli('action', '--id', row['id'], '--verb', 'restore', '--apply')
+        self.assertEqual(code, 0, result)
+        self.assertEqual(self.values(), self.original)
+
+    def test_busy_lock_refuses_without_mutation(self):
+        import fcntl
+        row = backend.load_rows()[0]
+        self.assertEqual(self.cli('action', '--id', row['id'], '--verb', 'apply', '--apply')[0], 0)
+        lock = next((self.home / 'state').rglob('lock'))
+        with lock.open('r+') as stream:
+            fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            before = self.values()
+            code, result = self.cli('action', '--id', row['id'], '--verb', 'restore', '--apply')
+            self.assertNotEqual(code, 0)
+            self.assertIn('progress', result['message'])
+            self.assertEqual(self.values(), before)
+
+    def test_invalid_snapshot_fields_fail_without_trace_or_mutation(self):
+        import json
+        row = backend.load_rows()[0]
+        self.assertEqual(self.cli('action', '--id', row['id'], '--verb', 'apply', '--apply')[0], 0)
+        path = next((self.home / 'state').rglob('transaction.json'))
+        record = json.loads(path.read_text())
+        record['before']['exec'] = 'bad'
+        path.write_text(json.dumps(record))
+        before = self.values()
+        code, result = self.cli('action', '--id', row['id'], '--verb', 'restore', '--apply')
+        self.assertNotEqual(code, 0)
+        self.assertIn('snapshot', result['message'])
+        self.assertEqual(self.values(), before)
+
+    def test_successive_presets_keep_original_restore_baseline(self):
+        rows = backend.load_rows() if backend.SLUG != 'shader-deck' else backend.load_rows()[:1]
+        for row in rows:
+            code, result = self.cli('action', '--id', row['id'], '--verb', 'apply', '--apply')
+            self.assertEqual(code, 0, result)
+        code, result = self.cli('action', '--id', rows[-1]['id'], '--verb', 'restore', '--apply')
+        self.assertEqual(code, 0, result)
+        self.assertEqual(self.values(), self.original)
+
+    def test_restore_preserves_unrelated_external_values(self):
+        import json
+        row = backend.load_rows()[0]
+        self.assertEqual(self.cli('action', '--id', row['id'], '--verb', 'apply', '--apply')[0], 0)
+        external = self.values()
+        external['unrelated'] = 'externally edited'
+        (self.home / 'compositor.json').write_text(json.dumps(external))
+        code, result = self.cli('action', '--id', row['id'], '--verb', 'restore', '--apply')
+        self.assertEqual(code, 0, result)
+        self.assertEqual(self.values(), dict(self.original, unrelated='externally edited'))
+
+    def test_oversized_data_read_is_bounded(self):
+        path = self.home / 'large.json'
+        path.write_bytes(b' ' * 65537)
+        with self.assertRaises(ValueError):
+            backend.bounded_json(path)
+
+    def test_private_state_directory_rejects_world_writable_location(self):
+        directory = self.home / 'state' / ('omarchy-' + backend.SLUG)
+        directory.mkdir(parents=True)
+        directory.chmod(0o777)
+        row = backend.load_rows()[0]
+        code, result = self.cli('action', '--id', row['id'], '--verb', 'apply', '--apply')
+        self.assertNotEqual(code, 0, 'unsafe permissions accepted')
+        self.assertEqual(self.values(), self.original)
+
+    def test_malformed_ipc_shapes_return_json_failure_without_trace(self):
+        row = backend.load_rows()[0]
+        for kind in ['version', 'option']:
+            with self.subTest(kind=kind):
+                code, result = self.cli('action', '--id', row['id'], '--verb', 'apply', '--apply',
+                                       extra={'FIXTURE_MALFORMED': kind})
+                self.assertNotEqual(code, 0)
+                self.assertFalse(result['ok'])
+                self.assertEqual(self.values(), self.original)
+
+    def test_hung_ipc_times_out_without_mutation(self):
+        import time
+        start = time.monotonic()
+        row = backend.load_rows()[0]
+        code, result = self.cli('action', '--id', row['id'], '--verb', 'apply', '--apply',
+                                extra={'FIXTURE_HANG': '1'})
+        self.assertNotEqual(code, 0)
+        self.assertIn('timed out', result['message'])
+        self.assertLess(time.monotonic() - start, 5)
+        self.assertEqual(self.values(), self.original)
+
+    def test_flooded_ipc_is_bounded(self):
+        row = backend.load_rows()[0]
+        code, result = self.cli('action', '--id', row['id'], '--verb', 'apply', '--apply',
+                                extra={'FIXTURE_FLOOD': '1'})
+        self.assertNotEqual(code, 0)
+        self.assertIn('64 KiB', result['message'])
+        self.assertEqual(self.values(), self.original)
+
+    def test_symlink_snapshot_never_follows_arbitrary_file(self):
+        row = backend.load_rows()[0]
+        self.assertEqual(self.cli('action', '--id', row['id'], '--verb', 'apply', '--apply')[0], 0)
+        path = next((self.home / 'state').rglob('transaction.json'))
+        moved = self.home / 'saved.json'
+        path.rename(moved)
+        path.symlink_to(moved)
+        before = self.values()
+        code, result = self.cli('action', '--id', row['id'], '--verb', 'restore', '--apply')
+        self.assertNotEqual(code, 0)
+        self.assertEqual(self.values(), before)
+
+    def test_sandbox_is_not_connected_to_live_session(self):
+        import os
+        self.assertFalse(os.environ.get('HYPRLAND_INSTANCE_SIGNATURE'))
+        self.assertFalse(os.environ.get('WAYLAND_DISPLAY'))
+        self.assertFalse(pathlib.Path('/run/user').exists())
+        self.assertFalse(pathlib.Path('/srv/projects').exists())
+        devices = pathlib.Path('/proc/net/dev').read_text()
+        self.assertNotIn('eth0', devices)
+        self.assertNotIn('wlan0', devices)
+
+    def test_persistence_failure_after_mutation_rolls_back(self):
+        import os
+        from unittest.mock import patch
+        real_save = backend.save
+        count = [0]
+        def interrupted(directory, record):
+            count[0] += 1
+            if count[0] == 2:
+                raise OSError('simulated fsync failure')
+            real_save(directory, record)
+        with patch.dict(os.environ, self.env, clear=True), patch.object(backend, 'save', interrupted):
+            with self.assertRaisesRegex(ValueError, 'rollback confirmed'):
+                backend.action(backend.load_rows()[0]['id'], 'apply')
+        self.assertEqual(self.values(), self.original)
+        self.assertFalse(list((self.home / 'state').rglob('transaction.json')))
+
+    def test_profiles_never_reenable_disabled_motion(self):
+        import json
+        self.original['animations.enabled'] = False
+        (self.home / 'compositor.json').write_text(json.dumps(self.original))
+        rows = backend.load_rows() if backend.SLUG != 'shader-deck' else backend.load_rows()[:1]
+        for row in rows:
+            code, result = self.cli('action', '--id', row['id'], '--verb', 'apply', '--apply')
+            self.assertEqual(code, 0, result)
+            self.assertIs(self.values()['animations.enabled'], False)
+        self.assertEqual(self.cli('action', '--id', rows[0]['id'], '--verb', 'restore', '--apply')[0], 0)
+        self.assertEqual(self.values(), self.original)
+
+    def test_child_closing_stdout_then_hanging_is_plain_timeout(self):
+        row = backend.load_rows()[0]
+        code, result = self.cli('action','--id',row['id'],'--verb','apply','--apply',
+                                extra={'FIXTURE_CLOSE_STDOUT':'1'})
+        self.assertNotEqual(code,0)
+        self.assertIn('timed out',result['message'])
+        self.assertEqual(self.values(),self.original)
+
+    def test_strict_data_validation_and_no_code_fields(self):
+        self.assertTrue(callable(getattr(backend, "validate_rows", None)), "strict validation missing")
+        rows = backend.load_rows()
+        self.assertEqual(backend.validate_rows(rows), rows)
+        import copy
+        for value in [None, [], rows * 100, [dict(rows[0], code="os.execute('bad')")],
+                      [rows[0], rows[0]], [dict(rows[0], id="../bad")],
+                      [dict(rows[0], label="X" * 129)],
+                      [dict(rows[0], settings={"exec": "bad"})]]:
+            with self.subTest(value=str(value)[:80]):
+                with self.assertRaises(ValueError):
+                    backend.validate_rows(value)
+        row = copy.deepcopy(rows[0])
+        key = next(iter(row["settings"]))
+        row["settings"][key] = "hl.dispatch('exit')"
+        with self.assertRaises(ValueError):
+            backend.validate_rows([row])
+
+    def test_cli_refuses_action_without_explicit_apply(self):
+        import subprocess, json
+        p = subprocess.run(["/usr/bin/python3", str(ROOT / "runtime/0.1.0/backend.py"),
+                            "action", "--id", "bad", "--verb", "apply"], capture_output=True, timeout=5)
+        self.assertNotEqual(p.returncode, 0, "action lacks explicit apply guard")
+        self.assertFalse(json.loads(p.stdout)["ok"])
+
+    def test_catalog_is_bounded_and_has_unique_known_rows(self):
+        self.assertTrue(callable(getattr(backend, "catalog", None)), "catalog behavior is missing")
+        result = backend.catalog()
+        self.assertEqual(result["actions"], ["apply", "restore"])
+        self.assertEqual(result["actionLabel"], "Apply")
+        rows = result["rows"]
+        self.assertGreaterEqual(len(rows), 3)
+        self.assertEqual(len({r["id"] for r in rows}), len(rows))
+        self.assertTrue(all(set(r) == {"id", "label", "detail"} for r in rows))
+
+if __name__ == "__main__":
+    unittest.main()

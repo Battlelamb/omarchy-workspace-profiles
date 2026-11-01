@@ -1,0 +1,71 @@
+[
+  {
+    "id": "efficiency",
+    "label": "Efficiency",
+    "detail": "Zero gaps, thin borders, no blur or shadows. No app moves.",
+    "settings": {
+      "general.gaps_in": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "general.gaps_out": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "general.border_size": 1,
+      "decoration.rounding": 0,
+      "decoration.blur.enabled": false,
+      "decoration.shadow.enabled": false
+    }
+  },
+  {
+    "id": "compact",
+    "label": "Compact",
+    "detail": "Small gaps, thin borders and sharp corners. Runtime appearance only.",
+    "settings": {
+      "general.gaps_in": [
+        3,
+        3,
+        3,
+        3
+      ],
+      "general.gaps_out": [
+        5,
+        5,
+        5,
+        5
+      ],
+      "general.border_size": 1,
+      "decoration.rounding": 0,
+      "decoration.blur.enabled": false,
+      "decoration.shadow.enabled": false
+    }
+  },
+  {
+    "id": "comfortable",
+    "label": "Comfortable",
+    "detail": "Roomier gaps and rounded corners, without blur or shadows.",
+    "settings": {
+      "general.gaps_in": [
+        6,
+        6,
+        6,
+        6
+      ],
+      "general.gaps_out": [
+        12,
+        12,
+        12,
+        12
+      ],
+      "general.border_size": 2,
+      "decoration.rounding": 8,
+      "decoration.blur.enabled": false,
+      "decoration.shadow.enabled": false
+    }
+  }
+]
