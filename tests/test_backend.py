@@ -43,6 +43,83 @@ class BackendTests(unittest.TestCase):
         import json
         return json.loads((self.home / 'compositor.json').read_text())
 
+    def test_restore_alias_restores_receipt_not_selected_row(self):
+        row = backend.load_rows()[0]
+        code, result = self.cli('action', '--id', row['id'], '--verb', 'apply', '--apply')
+        self.assertEqual(code, 0, result)
+        self.assertNotEqual(self.values(), self.original)
+        code, result = self.cli('action', '--id', 'restore:last', '--verb', 'restore', '--apply')
+        self.assertEqual(code, 0, result)
+        self.assertTrue(result['ok'])
+        self.assertEqual(self.values(), self.original)
+        self.assertFalse(list((self.home / 'state').rglob('transaction.json')))
+
+    def test_restore_alias_without_receipt_cannot_claim_success(self):
+        code, result = self.cli('action', '--id', 'restore:last', '--verb', 'restore', '--apply')
+        self.assertNotEqual(code, 0)
+        self.assertIn('No snapshot', result['message'])
+        self.assertEqual(self.values(), self.original)
+        self.assertFalse((self.home / 'eval-count').exists())
+
+    def test_restore_alias_is_exact_explicit_restore_only(self):
+        for ident, verb, apply in [('restore:last', 'apply', True), ('restore:last', 'confirm', True),
+                                   ('restore:last ', 'restore', True), ('restore:LAST', 'restore', True),
+                                   ('restore:last', 'restore', False)]:
+            args = ['action', '--id', ident, '--verb', verb] + (['--apply'] if apply else [])
+            code, result = self.cli(*args)
+            self.assertNotEqual(code, 0)
+            self.assertFalse(result['ok'])
+        self.assertFalse((self.home / 'calls.jsonl').exists())
+        self.assertFalse((self.home / 'state').exists())
+        self.assertEqual(self.values(), self.original)
+
+    def test_restore_alias_preserves_external_edit_and_receipt(self):
+        import json
+        row = backend.load_rows()[0]
+        self.assertEqual(self.cli('action', '--id', row['id'], '--verb', 'apply', '--apply')[0], 0)
+        path = next((self.home / 'state').rglob('transaction.json'))
+        receipt = path.read_bytes()
+        count = (self.home / 'eval-count').read_bytes()
+        edited = self.values()
+        key = next(iter(row['settings']))
+        value = edited[key]
+        edited[key] = not value if type(value) is bool else (99 if type(value) is int else ([99]*4 if type(value) is list else '/external.frag'))
+        (self.home / 'compositor.json').write_text(json.dumps(edited))
+        code, result = self.cli('action', '--id', 'restore:last', '--verb', 'restore', '--apply')
+        self.assertNotEqual(code, 0)
+        self.assertIn('conflict', result['message'].lower())
+        self.assertEqual(self.values(), edited)
+        self.assertEqual(path.read_bytes(), receipt)
+        self.assertEqual((self.home / 'eval-count').read_bytes(), count)
+
+    def test_restore_alias_requires_valid_bounded_session_receipt(self):
+        import copy, json
+        row = backend.load_rows()[0]
+        self.assertEqual(self.cli('action', '--id', row['id'], '--verb', 'apply', '--apply')[0], 0)
+        path = next((self.home / 'state').rglob('transaction.json'))
+        good = json.loads(path.read_text())
+        invalid = []
+        missing_id = dict(good); del missing_id['id']; invalid.append(missing_id)
+        invalid.extend([dict(good, id=[]), dict(good, instance='foreign_session'), dict(good, phase='bad')])
+        bad_values = copy.deepcopy(good); bad_values['before']['exec'] = 'bad'; invalid.append(bad_values)
+        contents = [json.dumps(record).encode() for record in invalid] + [b' ' * 65537]
+        before, count = self.values(), (self.home / 'eval-count').read_bytes()
+        for content in contents:
+            with self.subTest(receipt=content[:80]):
+                path.write_bytes(content)
+                code, result = self.cli('action', '--id', 'restore:last', '--verb', 'restore', '--apply')
+                self.assertNotEqual(code, 0)
+                self.assertFalse(result['ok'])
+                self.assertEqual(path.read_bytes(), content)
+                self.assertEqual(self.values(), before)
+                self.assertEqual((self.home / 'eval-count').read_bytes(), count)
+        path.write_text(json.dumps(good))
+        moved = self.home / 'owned-receipt.json'; path.rename(moved); path.symlink_to(moved)
+        code, result = self.cli('action', '--id', 'restore:last', '--verb', 'restore', '--apply')
+        self.assertNotEqual(code, 0)
+        self.assertEqual(json.loads(moved.read_text()), good)
+        self.assertEqual(self.values(), before)
+
     def test_explicit_apply_then_restore_actual_values(self):
         row = backend.load_rows()[0]
         code, result = self.cli('action', '--id', row['id'], '--verb', 'apply', '--apply')
@@ -275,6 +352,126 @@ class BackendTests(unittest.TestCase):
                 backend.action(backend.load_rows()[0]['id'], 'apply')
         self.assertEqual(self.values(), self.original)
         self.assertFalse(list((self.home / 'state').rglob('transaction.json')))
+
+    def test_after_replace_failure_partial_rollback_remains_recoverable(self):
+        import json, os
+        from unittest.mock import patch
+        real_save, real_write = backend.save, backend.write_value
+        saves, writes = [0], [0]
+        def save(directory, record):
+            saves[0] += 1
+            real_save(directory, record)
+            if saves[0] == 2:
+                raise OSError('active save failed after replace')
+        def write(key, value, expected):
+            writes[0] += 1
+            if writes[0] == 8:
+                raise ValueError('IPC failed after first compensation')
+            return real_write(key, value, expected)
+        with patch.dict(os.environ, self.env, clear=True), patch.object(backend, 'save', save), patch.object(backend, 'write_value', write):
+            with self.assertRaisesRegex(ValueError, 'retained'):
+                backend.action('efficiency', 'apply')
+        path = next((self.home / 'state').rglob('transaction.json'))
+        record = json.loads(path.read_text())
+        self.assertEqual(writes[0], 8)
+        self.assertEqual(record['phase'], 'pending')
+        self.assertNotEqual({k:self.values()[k] for k in backend.SCHEMA}, record['expected'])
+        code, result = self.cli('action', '--id', 'efficiency', '--verb', 'restore', '--apply')
+        self.assertEqual(code, 0, result)
+        self.assertEqual(self.values(), self.original)
+        self.assertFalse(path.exists())
+
+    def test_group_kill_mid_compensation_recovers_before_and_after_replace(self):
+        import json, os, signal, subprocess, time
+        for stage, prior in [('before', 'first'), ('after', 'first'), ('before', 'prior'), ('after', 'prior')]:
+            with self.subTest(stage=stage, prior=prior):
+                marker = self.home / 'rollback-paused.json'; marker.unlink(missing_ok=True)
+                caller = subprocess.Popen(['/usr/bin/python3', str(ROOT / 'tests/rollback_caller_fixture.py'), stage, prior],
+                    env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+                try:
+                    deadline = time.monotonic() + 6
+                    while not marker.exists() and caller.poll() is None and time.monotonic() < deadline:
+                        time.sleep(0.01)
+                    self.assertTrue(marker.exists(), 'caller did not reach compensating setter')
+                    evidence = json.loads(marker.read_text())
+                    self.assertEqual(evidence['pid'], caller.pid)
+                    self.assertEqual(evidence['pgid'], caller.pid)
+                    os.killpg(caller.pid, signal.SIGKILL)
+                    out, err = caller.communicate(timeout=2)
+                    self.assertEqual(caller.returncode, -signal.SIGKILL)
+                    self.assertEqual((out, err), (b'', b''))
+                    path = next((self.home / 'state').rglob('transaction.json'))
+                    record = json.loads(path.read_text())
+                    self.assertEqual(record, evidence['journal'])
+                    self.assertEqual(record['phase'], 'pending')
+                    self.assertEqual(record['before'], {k:self.original[k] for k in backend.SCHEMA})
+                    mixed = {k:self.values()[k] for k in backend.SCHEMA}
+                    self.assertNotEqual(mixed, record['previous'])
+                    self.assertNotEqual(mixed, record['expected'])
+                    # A truly external value must still block recovery without changing the receipt.
+                    edited = self.values(); edited['general.border_size'] = 99
+                    (self.home / 'compositor.json').write_text(json.dumps(edited))
+                    receipt = path.read_bytes()
+                    code, result = self.cli('action', '--id', 'restore:last', '--verb', 'restore', '--apply')
+                    self.assertNotEqual(code, 0)
+                    self.assertIn('conflict', result['message'].lower())
+                    self.assertEqual(self.values(), edited)
+                    self.assertEqual(path.read_bytes(), receipt)
+                    (self.home / 'compositor.json').write_text(json.dumps(dict(edited, **mixed)))
+                    code, result = self.cli('action', '--id', 'restore:last', '--verb', 'restore', '--apply')
+                    self.assertEqual(code, 0, result)
+                    self.assertEqual(self.values(), self.original)
+                    self.assertFalse(path.exists())
+                    print('FIXTURE_EVIDENCE ' + json.dumps({'stage': stage, 'prior': prior,
+                        'caller_exit': caller.returncode, 'phase': record['phase'],
+                        'external_edit_refused': True, 'baseline_restored': True}), flush=True)
+                finally:
+                    if caller.poll() is None:
+                        os.killpg(caller.pid, signal.SIGKILL); caller.wait(timeout=2)
+                    caller.stdout.close(); caller.stderr.close()
+
+    def test_failed_rollback_intent_save_prevents_compensating_writes(self):
+        import json, os
+        from unittest.mock import patch
+        real_save = backend.save
+        saves = [0]
+        def save(directory, record):
+            saves[0] += 1
+            if saves[0] == 2:
+                real_save(directory, record)
+                raise OSError('active save failed after replace')
+            if saves[0] == 3:
+                raise OSError('cannot persist compensation intent')
+            return real_save(directory, record)
+        with patch.dict(os.environ, self.env, clear=True), patch.object(backend, 'save', save):
+            with self.assertRaisesRegex(ValueError, 'retained'):
+                backend.action('efficiency', 'apply')
+        self.assertEqual(saves[0], 3)
+        self.assertEqual(int((self.home / 'eval-count').read_text()), 6)
+        path = next((self.home / 'state').rglob('transaction.json'))
+        record = json.loads(path.read_text())
+        self.assertEqual(record['phase'], 'active')
+        self.assertEqual({k:self.values()[k] for k in backend.SCHEMA}, record['expected'])
+        self.assertEqual(self.cli('action', '--id', 'restore:last', '--verb', 'restore', '--apply')[0], 0)
+        self.assertEqual(self.values(), self.original)
+
+    def test_failed_restore_of_pending_mixture_compensates_to_actual_previous(self):
+        import json
+        self.assertEqual(self.cli('action', '--id', 'efficiency', '--verb', 'apply', '--apply')[0], 0)
+        path = next((self.home / 'state').rglob('transaction.json'))
+        record = json.loads(path.read_text()); record['phase'] = 'pending'
+        record['previous'] = dict(record['before']); path.write_text(json.dumps(record))
+        mixed = self.values(); mixed['decoration.shadow.enabled'] = self.original['decoration.shadow.enabled']
+        (self.home / 'compositor.json').write_text(json.dumps(mixed))
+        (self.home / 'eval-count').unlink()
+        code, result = self.cli('action', '--id', 'restore:last', '--verb', 'restore', '--apply',
+            extra={'FIXTURE_FAIL_AT': '2', 'FIXTURE_FAIL_AFTER': '1'})
+        self.assertNotEqual(code, 0)
+        self.assertIn('rollback confirmed', result['message'])
+        self.assertEqual(self.values(), mixed)
+        self.assertEqual(json.loads(path.read_text()), record)
+        self.assertEqual(self.cli('action', '--id', 'restore:last', '--verb', 'restore', '--apply')[0], 0)
+        self.assertEqual(self.values(), self.original)
 
     def test_profiles_never_reenable_disabled_motion(self):
         import json

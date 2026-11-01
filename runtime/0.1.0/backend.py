@@ -258,6 +258,8 @@ def load_state(directory, instance):
     record = bounded_json(path)
     if type(record) is not dict or record.get('instance') != instance:
         raise ValueError('Invalid session snapshot')
+    if type(record.get('id')) is not str or not re.fullmatch('[a-z0-9][a-z0-9-]{0,63}', record['id']):
+        raise ValueError('Invalid snapshot preset ID')
     if record.get('phase') not in ('pending', 'active'):
         raise ValueError('Invalid snapshot phase')
     for field in ('before', 'expected', 'previous'):
@@ -282,13 +284,13 @@ def apply_transaction(directory, instance, row_id, current, target, old_record, 
         if restoring:
             (directory / 'transaction.json').unlink()
         else:
-            record['phase'] = 'active'
-            record['previous'] = dict(target)
-            save(directory, record)
+            save(directory, dict(record, phase='active', previous=dict(target)))
     except (ValueError, OSError, subprocess.SubprocessError) as failure:
         try:
+            # Active publication may have succeeded before fsync failed; journal compensation first.
+            save(directory, record)
             actual = read_values()
-            previous = record['previous'] if record['phase'] == 'pending' else (old_record['expected'] if old_record else record['before'])
+            previous = record['previous']
             # Restore only values this transaction could have written, never a divergent external value.
             for key in reversed(list(target)):
                 if actual[key] != previous[key]:
@@ -309,7 +311,7 @@ def apply_transaction(directory, instance, row_id, current, target, old_record, 
 
 def action(row_id, verb):
     rows = {r['id']: r for r in load_rows()}
-    if row_id not in rows or verb not in ('apply', 'restore'):
+    if (row_id not in rows and (row_id, verb) != ('restore:last', 'restore')) or verb not in ('apply', 'restore'):
         raise ValueError('Unknown preset ID or action; refresh catalogue')
     instance = session()
     directory = state_dir(instance)
@@ -328,6 +330,8 @@ def action(row_id, verb):
         if verb == 'restore':
             if not record:
                 raise ValueError('No snapshot for this session')
+            if row_id == 'restore:last':
+                row_id = record['id']
             target = record['before']
         else:
             target = dict(current)

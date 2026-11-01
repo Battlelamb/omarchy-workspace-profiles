@@ -13,7 +13,7 @@ No catalogue or selection performs an action.
 ```
 /usr/bin/python3 runtime/0.1.0/backend.py catalog
 /usr/bin/python3 runtime/0.1.0/backend.py action --id <known-id> --verb apply --apply
-/usr/bin/python3 runtime/0.1.0/backend.py action --id <any-known-id> --verb restore --apply
+/usr/bin/python3 runtime/0.1.0/backend.py action --id restore:last --verb restore --apply
 ```
 
 `--apply` is mandatory for every user action. Fresh full membership and strict
@@ -50,9 +50,12 @@ rollback to the immediately previous runtime values. Failed rollback retains the
 journal. A later explicit Restore can recover interrupted mixed previous/target
 values. Active snapshots require exact expected-value agreement. Divergent
 external edits cause refusal, not silent overwrite. Unrelated keys are untouched.
-Restore accepts any currently known row ID and restores the **first session
-snapshot**, not the selected row's defaults. After successful Restore, snapshot
-is removed and a second Restore honestly reports no snapshot.
+Restore accepts the literal `restore:last` alias or any currently known row ID
+and restores the **first session snapshot**, not the selected row's defaults.
+The alias is valid only with `--verb restore --apply`; Apply/Keep cannot use it.
+It resolves to the saved preset identity after the same bounded receipt, session,
+lock and external-edit checks, without depending on a visible/filtered UI row.
+After successful Restore the snapshot is removed; a second Restore reports no snapshot.
 
 This is value-level optimistic conflict detection, not a global compositor lock:
 ABA edits returning to the same values cannot be distinguished. Restoring values
@@ -75,7 +78,7 @@ explicit recovery rather than claiming success. No action test touched live IPC.
 Run from this project:
 
 ```
-/usr/bin/python3 tests/run-sandbox.py <unique-receipt-label>
+TMPDIR=/home/leviathan/.hermes/cache/scratch env -u PYTHONPATH /usr/bin/python3 scripts/run-tests.py --backend-only
 ```
 
 The runner uses offline bwrap, cleared environment, a fresh fake HOME, hidden
@@ -85,7 +88,19 @@ The fake `hyprctl` executes actual generated code with system Lua against a fake
 `hl` object and persists observable fake compositor state. It is logic/transport
 fixture evidence, not proof that a real C++ compositor or GPU accepted an effect.
 
-Current suite has **27 tests**; final run/count is in `release-output/backend-result.json`.
+Current suite has **36 tests**. RED/GREEN logs, frozen backend/test
+sources, hashes and final results are recorded under
+`release-output/ponytail-fixes-1793557687154573167/`; earlier receipts remain
+immutable historical evidence. These runs use `scripts/run-tests.py --backend-only`.
+An active-state write can publish successfully and then fail its directory fsync.
+Before any compensating setter, the original pending intent is saved again with
+the actual pre-transaction values. If that save fails, compensation does not start.
+A caller killed during compensation therefore leaves a pending journal owning
+its mixed previous/target values, not an active journal falsely flagging its own
+rollback as an external edit. The first baseline remains unchanged, including
+when a failed explicit Restore started from an already interrupted mixture.
+This is fault-injection/process-kill evidence, not a power-loss durability claim.
+
 ## Workspace-specific scope
 
 Rows: `efficiency`, `compact`, `comfortable`. These are global runtime workspace
