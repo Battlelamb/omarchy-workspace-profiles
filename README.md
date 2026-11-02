@@ -8,7 +8,7 @@ Choose a runtime gaps/border/rounding/blur/shadow profile with explicit Apply an
 
 ## Install and open
 
-Unpublished v0.2.0 candidate. The repository below is a **proposed publication target**, not a claim that it exists. After publication:
+Unpublished v0.2.1 candidate. Compact selected-detail readability has fresh private native checks; v0.2.0 qualification is historical (see validation). The repository below is a **proposed publication target**, not a claim that it exists. After publication:
 
 ```sh
 omarchy plugin add https://github.com/Battlelamb/omarchy-workspace-profiles --enable
