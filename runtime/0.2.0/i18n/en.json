@@ -1,0 +1,27 @@
+{
+  "search": "Search workspace profiles…",
+  "loading": "Loading…",
+  "empty": "No matching items",
+  "loadFailed": "Unable to load catalogue. Check the backend and try Refresh.",
+  "apply": "Apply profile",
+  "copy": "Copy",
+  "launch": "Launch",
+  "export": "Export",
+  "restore": "Restore",
+  "confirm": "Keep effect",
+  "select": "Select an item",
+  "refresh": "Refresh",
+  "working": "Working…",
+  "keys": "Arrows select · Enter apply · Esc close",
+  "results": {
+    "one": "%1 profile shown",
+    "other": "%1 profiles shown"
+  },
+  "title": "Workspace Profiles",
+  "explore": "Explore",
+  "configure": "Configure",
+  "clearSearch": "Clear search",
+  "details": "Selection details",
+  "subtitle": "Give your windows a little structure.",
+  "safety": "Session-only. Restore refuses external changes."
+}

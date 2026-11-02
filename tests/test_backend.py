@@ -2,8 +2,10 @@ import importlib.util
 import pathlib
 import unittest
 
+import json
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location("backend", ROOT / "runtime/0.1.0/backend.py")
+RUNTIME = ROOT / pathlib.Path(json.loads((ROOT / 'manifest.json').read_text())['entryPoints']['overlay']).parent
+spec = importlib.util.spec_from_file_location("backend", RUNTIME / "backend.py")
 backend = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(backend)
 
@@ -33,7 +35,7 @@ class BackendTests(unittest.TestCase):
 
     def cli(self, *args, extra=None):
         import subprocess, json
-        p = subprocess.run(['/usr/bin/python3', str(ROOT / 'runtime/0.1.0/backend.py'), *args],
+        p = subprocess.run(['/usr/bin/python3', str(RUNTIME / 'backend.py'), *args],
                            env=dict(self.env, **(extra or {})), capture_output=True, timeout=25)
         self.assertLess(len(p.stdout), 1048576)
         self.assertEqual(p.stderr, b'', p.stderr)
@@ -513,7 +515,7 @@ class BackendTests(unittest.TestCase):
 
     def test_cli_refuses_action_without_explicit_apply(self):
         import subprocess, json
-        p = subprocess.run(["/usr/bin/python3", str(ROOT / "runtime/0.1.0/backend.py"),
+        p = subprocess.run(["/usr/bin/python3", str(RUNTIME / "backend.py"),
                             "action", "--id", "bad", "--verb", "apply"], capture_output=True, timeout=5)
         self.assertNotEqual(p.returncode, 0, "action lacks explicit apply guard")
         self.assertFalse(json.loads(p.stdout)["ok"])
