@@ -16,7 +16,13 @@ SCHEMAS = {
     'shader-deck': {'decoration.screen_shader': 'shader'},
 }
 SCHEMA = SCHEMAS[SLUG] if SLUG != 'TEMPLATE' else {}
-PREFERENCE_SCHEMA = {'showDiffs': {'type': 'boolean', 'default': True, 'label': 'Show appearance value summaries'}}
+PREFERENCE_SCHEMA = {
+    'density': {'type': 'enum', 'default': 'comfortable', 'choices': ['comfortable', 'compact'], 'label': 'Density'},
+    'layout': {'type': 'enum', 'default': 'list', 'choices': ['grid', 'list'], 'label': 'Layout'},
+    'sortOrder': {'type': 'enum', 'default': 'default', 'choices': ['default', 'name', 'favorites-first'], 'label': 'Sort order'},
+    'showDiffs': {'type': 'boolean', 'default': True, 'label': 'Show appearance value summaries'},
+    'applyScope': {'type': 'enum', 'default': 'all', 'choices': ['all', 'spacing-only', 'effects-only'], 'label': 'Apply scope'},
+}
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import preferences
 
@@ -366,6 +372,14 @@ def apply_transaction(directory, instance, row_id, current, target, old_record, 
         raise ValueError('Preset failed; rollback confirmed previous compositor values.') from failure
 
 
+def scoped_settings(settings):
+    scope = preferences.read(SLUG, PREFERENCE_SCHEMA)['options']['applyScope']
+    keys = {'general.gaps_in', 'general.gaps_out', 'general.border_size'}
+    if scope == 'effects-only':
+        keys = {'decoration.rounding', 'decoration.blur.enabled', 'decoration.shadow.enabled'}
+    return {k: v for k, v in settings.items() if scope == 'all' or k in keys}
+
+
 def action(row_id, verb):
     rows = {} if (row_id, verb) == ('restore:last', 'restore') else {r['id']: r for r in load_rows()}
     if verb == 'favorite' and row_id in rows:
@@ -373,7 +387,7 @@ def action(row_id, verb):
     if verb == 'compare' and row_id in rows:
         session()
         current = read_values()
-        diff = [{'key': k, 'before': current[k], 'after': v} for k,v in rows[row_id]['settings'].items() if current[k] != v]
+        diff = [{'key': k, 'before': current[k], 'after': v} for k,v in scoped_settings(rows[row_id]['settings']).items() if current[k] != v]
         return {'ok': True, 'message': 'Appearance diff only; no settings changed.', 'diff': diff,
                 'detail': '\n'.join(d['key'] + ': ' + json.dumps(d['before']) + ' -> ' + json.dumps(d['after']) for d in diff) or 'No differences.'}
     if (row_id not in rows and (row_id, verb) != ('restore:last', 'restore')) or verb not in ('apply', 'restore'):
@@ -400,7 +414,7 @@ def action(row_id, verb):
             target = record['before']
         else:
             target = dict(current)
-            for key, value in rows[row_id]['settings'].items():
+            for key, value in scoped_settings(rows[row_id]['settings']).items():
                 if type(value) is str and value.startswith('@'):
                     raise ValueError('Shader watchdog is not ready; effect refused')
                 target[key] = value

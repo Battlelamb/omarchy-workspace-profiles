@@ -1,15 +1,15 @@
-# Workspace Profiles backend · v0.3.0
+# Workspace Profiles backend · v0.4.0
 
 ## Commands and schema
 
 Exact advertised actions: `apply`, `restore`, `favorite`, `capture`, `import`, `export-preset`, `compare`.
 
 ```
-/usr/bin/python3 runtime/0.3.0/backend.py catalog
-/usr/bin/python3 runtime/0.3.0/backend.py action --id compact-coding --verb compare --apply
-/usr/bin/python3 runtime/0.3.0/backend.py action --id compact-coding --verb apply --apply
-/usr/bin/python3 runtime/0.3.0/backend.py action --id restore:last --verb restore --apply
-/usr/bin/python3 runtime/0.3.0/backend.py preferences --apply --payload '{"options":{"showDiffs":false}}'
+/usr/bin/python3 runtime/0.4.0/backend.py catalog
+/usr/bin/python3 runtime/0.4.0/backend.py action --id compact-coding --verb compare --apply
+/usr/bin/python3 runtime/0.4.0/backend.py action --id compact-coding --verb apply --apply
+/usr/bin/python3 runtime/0.4.0/backend.py action --id restore:last --verb restore --apply
+/usr/bin/python3 runtime/0.4.0/backend.py preferences --apply --payload '{"options":{"showDiffs":false}}'
 ```
 
 The five named appearance modes are `compact-coding`, `focused-writing`, `spacious`, `presentation`, `low-effects`. Existing `efficiency`, `compact`, `comfortable` IDs remain valid. Allowlist: `general.gaps_in`/`general.gaps_out` are four integer side values 0–10000; `general.border_size`/`decoration.rounding` are integers 0–100; `decoration.blur.enabled`/`decoration.shadow.enabled` are booleans. Every built-in and every custom import contains **exactly these six** values. No animation, workspace layout/assignment, app movement, monitor, shader, command or session-manager field is accepted.
@@ -22,6 +22,27 @@ Export example (all fields mandatory):
 
 No timed-preview action is advertised for workspace profiles: Apply and explicit Restore are the supported operations. Closing the panel does not auto-restore.
 
+## Scoped Compare and Apply
+
+Saved `applyScope` is enum `all` (default), `spacing-only`, `effects-only`.
+Spacing admits exactly `general.gaps_in`, `general.gaps_out`, and
+`general.border_size`; effects admits exactly `decoration.rounding`,
+`decoration.blur.enabled`, and `decoration.shadow.enabled`. Compare and Apply
+share the same selector over validated settings. Apply merges that subset into
+fresh complete current values; only changed subset keys reach setters.
+
+Capture/export/import remain complete six-setting typed data. Journals,
+compare-before-write guards, first baseline and Restore remain full-width;
+changing the preference never narrows Restore or external-divergence refusal.
+This deliberately retains refusal for a divergent edit outside today's scope.
+Partial failure compensates only values this transaction could have written,
+including when a setter changed state but lost its acknowledgement.
+
+```
+/usr/bin/python3 runtime/0.4.0/backend.py preferences --apply --payload '{"options":{"applyScope":"spacing-only"}}'
+/usr/bin/python3 runtime/0.4.0/backend.py action --id compact-coding --verb compare --apply
+```
+
 ## Provider and trust boundary
 
 System `/usr/bin/python3`, Python standard library and installed `hyprctl`; the adapter is qualified for **Hyprland Lua 0.56.2 only** and rejects other versions. Runtime paths derive from `__file__`, never cwd. Each package includes its own runtime helpers; no sibling plugin is required. Native shell code is unsandboxed at runtime; the development runner is not a runtime security sandbox.
@@ -30,14 +51,23 @@ Only `hyprctl -j version`, `hyprctl -j getoption <allowlisted dotted key>` and g
 
 Every write/action requires `--apply`; success is JSON with `ok:true`, failure is nonzero JSON with plain bounded text and no traceback. Unexpected options, inappropriate payloads and invalid membership fail closed. CLI payloads are JSON objects limited to **16384 UTF-8 bytes**; duplicate keys, nonfinite numbers, malformed Unicode and nesting beyond 12 levels are rejected. ID strings never become commands or output paths. Catalogue reads do no IPC or writes and expose fresh rows, `preferences` and `settingsSchema`.
 
+## v0.4.0 display preferences
+
+The exact enum keys are `density` (`comfortable` default, `compact`), `layout`
+(`list` default, `grid`), and `sortOrder` (`default` default, `name`,
+`favorites-first`). They affect native catalogue presentation only. Existing
+stores without these keys receive defaults without an implicit write; Reset
+returns those defaults. The UI owns stable sorting and fresh action admission.
+All settings writes remain local preference operations, never compositor setters.
+
 ## Preferences
 
-`PREFERENCE_SCHEMA` is passed to the local D-owned helper's exact `read`, `change`, `reset`, `toggle`, `remember` APIs. Storage is `${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/lego/<slug>/preferences.json`, outside the installed source. The helper bounds reads, rejects unsafe files/ancestor symlinks, locks updates and uses fsync plus atomic replacement. Corrupt preferences are not silently reset.
+`PREFERENCE_SCHEMA` is passed to the bundled `preferences.py` helper's exact `read`, `change`, `reset`, `toggle`, `remember` APIs. Storage is `${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/lego/<slug>/preferences.json`, outside the installed source. The helper bounds reads, rejects unsafe files/ancestor symlinks, locks updates and uses fsync plus atomic replacement. Corrupt preferences are not silently reset.
 
 ```
-/usr/bin/python3 runtime/0.3.0/backend.py preferences
-/usr/bin/python3 runtime/0.3.0/backend.py preferences --apply --payload '{"reset":true}'
-/usr/bin/python3 runtime/0.3.0/backend.py preferences --apply --payload '{"favorites":["known-id"],"collections":{"Desk":["known-id"]}}'
+/usr/bin/python3 runtime/0.4.0/backend.py preferences
+/usr/bin/python3 runtime/0.4.0/backend.py preferences --apply --payload '{"reset":true}'
+/usr/bin/python3 runtime/0.4.0/backend.py preferences --apply --payload '{"favorites":["known-id"],"collections":{"Desk":["known-id"]}}'
 ```
 
 Reads return `{ok,preferences,settingsSchema,message}`. Patches accept only `options`, `favorites`, `collections`; recent/version cannot be written. Reset is the sole-key `{reset:true}` request and resets **only preferences**, never custom presets, generated effects or transaction journals. Favorites may retain stale IDs inertly; Favorite actions require fresh membership. Recents update only after confirmed Apply/Preview/export. If recent persistence fails after an externally confirmed action, success remains truthful with a warning rather than reporting an invented action failure.
@@ -62,14 +92,14 @@ Run from this checkout, with an existing approved private scratch directory:
 TMPDIR="${TMPDIR:?Set an existing private scratch directory}" env -u PYTHONPATH PATH=/usr/bin /usr/bin/python3 scripts/run-tests.py --backend-only
 ```
 
-The shipped runner uses offline bwrap, unshared network, cleared environment, fresh fake HOME, hidden real HOME and `/run`, no live display/compositor sockets, read-only source/system files and fake IPC. The fake `hyprctl` executes generated Lua with the installed system Lua against an observable fake `hl` object. This proves logic/transport, not C++ compositor/GPU integration. Full native/component gate: `bash test.sh` with the same TMPDIR. Test counts, exact commands, source hashes and immutable RED/GREEN receipts are enumerated in ignored `release-output/v030-result.json`; old validation receipts remain historical rather than overwritten.
+The shipped runner uses offline bwrap, unshared network, cleared environment, fresh fake HOME, hidden real HOME and `/run`, no live display/compositor sockets, read-only source/system files and fake IPC. The fake `hyprctl` executes generated Lua with the installed system Lua against an observable fake `hl` object. This proves logic/transport, not C++ compositor/GPU integration. Full native/component gate: `bash test.sh` with the same TMPDIR. Historical 0.3.0 counts, commands, source hashes and RED/GREEN receipts are held in private ignored `release-output/v030-result.json`, which is not shipped or required by the documented runners; old validation receipts remain historical rather than overwritten.
 
 ## Named captures, strict import/export
 
 ```
-/usr/bin/python3 runtime/0.3.0/backend.py action --id capture:current --verb capture --apply --payload '{"name":"My desk"}'
-/usr/bin/python3 runtime/0.3.0/backend.py action --id <known-id> --verb export-preset --apply
-/usr/bin/python3 runtime/0.3.0/backend.py action --id import:preset --verb import --apply --payload '<versioned preset JSON>'
+/usr/bin/python3 runtime/0.4.0/backend.py action --id capture:current --verb capture --apply --payload '{"name":"My desk"}'
+/usr/bin/python3 runtime/0.4.0/backend.py action --id <known-id> --verb export-preset --apply
+/usr/bin/python3 runtime/0.4.0/backend.py action --id import:preset --verb import --apply --payload '<versioned preset JSON>'
 ```
 
 Capture reads actual allowlisted compositor values but calls no setter and writes no recovery journal. Import validates before storage and does no IPC. Export returns `{ok,message,preset,detail,preferences?}` containing inert JSON, never writes to a caller-chosen output path and never evaluates data. Apply is a separate explicit operation after import.

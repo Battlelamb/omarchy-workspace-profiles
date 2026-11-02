@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.0 — development/testing source snapshot
+
+- Choose full, spacing-only or effects-only application; Compare uses the same scope while capture/export and owned baseline recovery remain complete.
+- Add saved grid/list layout, comfortable/compact density and deterministic default/name/favorites-first ordering. Preserve legacy preferences outside the installed source and explicit Reset.
+- Refresh the native Explore/Configure surfaces and plugin-specific documentation. Keep standalone packages, explicit actions and recovery guards.
+- Synchronize native cancellation fixtures on bounded child readiness instead of a fixed startup delay; production process ownership is unchanged.
+- Final qualification results and limits are recorded separately; source publication is not live-action, full-shell, GPU or marketplace approval.
+
 ## 0.3.0 — UNRELEASED qualification candidate
 
 - Add five appearance profiles, asymmetric-gap captures, inert import/export and value-by-value Compare; do not move apps or change workspace assignments.
