@@ -1,0 +1,76 @@
+[
+  {"id":"compact-coding","label":"Compact coding","detail":"Dense editor layout: small gaps, thin border, crisp corners; no app movement.","settings":{"general.gaps_in":[3,3,3,3],"general.gaps_out":[5,5,5,5],"general.border_size":1,"decoration.rounding":0,"decoration.blur.enabled":false,"decoration.shadow.enabled":false}},
+  {"id":"focused-writing","label":"Focused writing","detail":"Quiet writing surface: generous margins and soft corners without blur.","settings":{"general.gaps_in":[8,8,8,8],"general.gaps_out":[20,20,20,20],"general.border_size":1,"decoration.rounding":6,"decoration.blur.enabled":false,"decoration.shadow.enabled":false}},
+  {"id":"spacious","label":"Spacious","detail":"Roomier gaps, rounded corners and normal blur/shadows.","settings":{"general.gaps_in":[10,10,10,10],"general.gaps_out":[18,18,18,18],"general.border_size":2,"decoration.rounding":12,"decoration.blur.enabled":true,"decoration.shadow.enabled":true}},
+  {"id":"presentation","label":"Presentation","detail":"Large borders, no gaps or distracting effects; appearance only.","settings":{"general.gaps_in":[0,0,0,0],"general.gaps_out":[0,0,0,0],"general.border_size":5,"decoration.rounding":0,"decoration.blur.enabled":false,"decoration.shadow.enabled":false}},
+  {"id":"low-effects","label":"Low effects","detail":"Minimal decoration: no gaps, border, rounding, blur or shadows.","settings":{"general.gaps_in":[0,0,0,0],"general.gaps_out":[0,0,0,0],"general.border_size":0,"decoration.rounding":0,"decoration.blur.enabled":false,"decoration.shadow.enabled":false}},
+  {
+    "id": "efficiency",
+    "label": "Efficiency",
+    "detail": "Zero gaps, thin borders, no blur or shadows. No app moves.",
+    "settings": {
+      "general.gaps_in": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "general.gaps_out": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "general.border_size": 1,
+      "decoration.rounding": 0,
+      "decoration.blur.enabled": false,
+      "decoration.shadow.enabled": false
+    }
+  },
+  {
+    "id": "compact",
+    "label": "Compact",
+    "detail": "Small gaps, thin borders and sharp corners. Runtime appearance only.",
+    "settings": {
+      "general.gaps_in": [
+        3,
+        3,
+        3,
+        3
+      ],
+      "general.gaps_out": [
+        5,
+        5,
+        5,
+        5
+      ],
+      "general.border_size": 1,
+      "decoration.rounding": 0,
+      "decoration.blur.enabled": false,
+      "decoration.shadow.enabled": false
+    }
+  },
+  {
+    "id": "comfortable",
+    "label": "Comfortable",
+    "detail": "Roomier gaps and rounded corners, without blur or shadows.",
+    "settings": {
+      "general.gaps_in": [
+        6,
+        6,
+        6,
+        6
+      ],
+      "general.gaps_out": [
+        12,
+        12,
+        12,
+        12
+      ],
+      "general.border_size": 2,
+      "decoration.rounding": 8,
+      "decoration.blur.enabled": false,
+      "decoration.shadow.enabled": false
+    }
+  }
+]
