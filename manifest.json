@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
-  "id": "leviathan.workspace-profiles",
+  "id": "battlelamb.workspace-profiles",
   "name": "Workspace Profiles",
-  "version": "0.4.0",
-  "author": "Ömer Eren",
+  "version": "0.4.1",
+  "author": "Battlelamb",
   "license": "GPL-3.0-only",
-  "description": "Choose a runtime gaps/border/rounding/blur/shadow profile with explicit Apply and receipt-bound Restore. Does not move applications or rewrite persistent configuration. Open: omarchy-shell shell summon leviathan.workspace-profiles. Type to search; arrows select; Enter acts; Esc closes.",
+  "description": "Choose a runtime gaps/border/rounding/blur/shadow profile with explicit Apply and receipt-bound Restore. Does not move applications or rewrite persistent configuration. Open: omarchy-shell shell summon battlelamb.workspace-profiles. Type to search; arrows select; Enter acts; Esc closes.",
   "kinds": [
     "overlay"
   ],
   "keepLoaded": true,
   "entryPoints": {
-    "overlay": "runtime/0.4.0/WorkspaceProfiles.qml"
+    "overlay": "runtime/0.4.1/WorkspaceProfiles.qml"
   }
 }

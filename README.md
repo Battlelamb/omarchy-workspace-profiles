@@ -4,7 +4,7 @@
 
 Choose a dense coding layout, quieter writing surface or low-effects appearance. These are **compositor-wide values**, not per-workspace rules. Profiles never launch/move apps, assign workspaces, change tiling layouts, manage sessions, alter monitors or rewrite startup configuration.
 
-> **v0.4.0 source candidate.** No installation or live Apply/Restore qualification is implied. The separate full-shell upgrade/rollback gate remains blocked. [Validation history](docs/VALIDATION.md).
+> **v0.4.1 source candidate.** No installation or live Apply/Restore qualification is implied. The separate full-shell upgrade/rollback gate remains blocked. [Validation history](docs/VALIDATION.md).
 
 
 ![Workspace Profiles 0.4.0 native Browse with illustrative catalogue data](preview.png)
@@ -71,16 +71,20 @@ Other saved settings: **Density** (`comfortable` / `compact`), **Layout** (`list
 
 Preferences and `custom-presets.json` live under `${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/lego/workspace-profiles/`; recovery under `${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-workspace-profiles/`. Updates do not replace this data.
 
+## Namespace migration
+
+The plugin ID is now `battlelamb.workspace-profiles`. Update local menu, binding, enabled-plugin and installed-ID references explicitly; a normal updater cannot implicitly rename a plugin ID. Stable preference, custom-data and recovery paths are unchanged. Complete any pending recovery/Restore before replacing the installed runtime; retain its source and journals until recovery finishes.
+
 ## Open and recover
 
 Requires Omarchy Quattro, compatible Quickshell/Qt (`qs.Ui`, `qs.Commons`), Python 3 and **Hyprland Lua 0.56.2**. Other provider versions fail closed. No sibling plugin is needed. Plugins run unsandboxed inside the shell.
 
 ```sh
 omarchy plugin add https://github.com/Battlelamb/omarchy-workspace-profiles --enable
-omarchy-shell shell summon leviathan.workspace-profiles
+omarchy-shell shell summon battlelamb.workspace-profiles
 # Restore in the panel BEFORE disabling or removing:
-omarchy plugin disable leviathan.workspace-profiles
-omarchy plugin remove leviathan.workspace-profiles
+omarchy plugin disable battlelamb.workspace-profiles
+omarchy plugin remove battlelamb.workspace-profiles
 ```
 
 Install neither applies a profile nor adds shortcuts. Existing Super+Space → Appearance entries remain independent of plugin installation.

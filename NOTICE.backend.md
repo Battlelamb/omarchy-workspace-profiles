@@ -3,8 +3,7 @@
 SPDX-License-Identifier: GPL-3.0-only
 
 Pinned donor: HyDE-Project/HyDE, commit `fa2fd57afc7203b1b5653d3271f3a57ea3873f97`.
-Repository licence: GNU GPL v3; full donor licence is preserved in private source
-evidence and the parent supplies the project LICENSE.
+Repository licence: GNU GPL v3; the full licence is included in `LICENSE`.
 
 Efficiency adapts the zero-gap, border=1, rounding=0, blur-off and shadow-off subset of the GPL HyDE efficiency profile. Its global opaque window rule, opacity float changes and animation changes are excluded. Compact/comfortable values and the transactional Python adapter are original project code. Editing.lua was inspected but its opaque rule and float changes were not copied.
 
@@ -32,8 +31,8 @@ version-header commit. No installer, init, arbitrary selector Lua, theme rewrite
 Rofi process killing, cloud endpoint, font, wallpaper or ambiguous dataset is
 shipped. The Python backend/tests and warm/compact/wraparound additions are
 project-authored GPL-3.0-only code. No claim that the original warm filter came
-from HyDE is made. Source snapshots are private ignored evidence, not runtime
-dependencies; hashes are repeated in release-output/backend-result.json.
+from HyDE is made. The pinned source hashes above identify the inspected references; those snapshots
+are not runtime dependencies.
 
 ## v0.3.0 additions
 
